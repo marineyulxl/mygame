@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>五子棋游戏 - 玩家 vs 电脑</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f4f4f9;
+            font-family: 'Inter', sans-serif;
+        }
+
+        #board {
+            border: 2px solid #333;
+            position: relative;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+        }
+
+        .piece {
+            position: absolute;
+            border-radius: 50%;
+            box-shadow: 0 0 5px rgba(0, 0, 0, 0.3);
+            transition: transform 0.2s ease-in-out;
+        }
+
+        .piece:hover {
+            transform: scale(1.1);
+        }
+
+        #result-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            justify-content: center;
+            align-items: center;
+        }
+
+        #result-content {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+        }
+
+        #result-message {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+
+        #restart-button {
+            padding: 10px 20px;
+            background-color: #007BFF;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.2s ease-in-out;
+        }
+
+        #restart-button:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="board"></div>
+    <div id="result-modal">
+        <div id="result-content">
+            <div id="result-message"></div>
+            <button id="restart-button">请重新开始</button>
+        </div>
+    </div>
+    <script>
+        const boardSize = 15;
+        const cellSize = 40;
+        const board = document.getElementById('board');
+        board.style.width = `${boardSize * cellSize}px`;
+        board.style.height = `${boardSize * cellSize}px`;
+
+        for (let i = 0; i < boardSize; i++) {
+            for (let j = 0; j < boardSize; j++) {
+                const cell = document.createElement('div');
+                cell.style.position = 'absolute';
+                cell.style.left = `${j * cellSize}px`;
+                cell.style.top = `${i * cellSize}px`;
+                cell.style.width = `${cellSize}px`;
+                cell.style.height = `${cellSize}px`;
+                cell.style.border = '1px solid #ccc';
+                board.appendChild(cell);
+            }
+        }
+
+        const pieces = [];
+        for (let i = 0; i < boardSize; i++) {
+            pieces[i] = [];
+            for (let j = 0; j < boardSize; j++) {
+                pieces[i][j] = 0;
+            }
+        }
+
+        let currentPlayer = 1; // 1 表示玩家，2 表示电脑
+
+        function checkWin(x, y, player) {
+            // 检查横向
+            let count = 1;
+            for (let i = x - 1; i >= 0 && pieces[i][y] === player; i--) {
+                count++;
+            }
+            for (let i = x + 1; i < boardSize && pieces[i][y] === player; i++) {
+                count++;
+            }
+            if (count >= 5) return true;
+
+            // 检查纵向
+            count = 1;
+            for (let i = y - 1; i >= 0 && pieces[x][i] === player; i--) {
+                count++;
+            }
+            for (let i = y + 1; i < boardSize && pieces[x][i] === player; i++) {
+                count++;
+            }
+            if (count >= 5) return true;
+
+            // 检查正斜向
+            count = 1;
+            for (let i = x - 1, j = y - 1; i >= 0 && j >= 0 && pieces[i][j] === player; i--, j--) {
+                count++;
+            }
+            for (let i = x + 1, j = y + 1; i < boardSize && j < boardSize && pieces[i][j] === player; i++, j++) {
+                count++;
+            }
+            if (count >= 5) return true;
+
+            // 检查反斜向
+            count = 1;
+            for (let i = x - 1, j = y + 1; i >= 0 && j < boardSize && pieces[i][j] === player; i--, j++) {
+                count++;
+            }
+            for (let i = x + 1, j = y - 1; i < boardSize && j >= 0 && pieces[i][j] === player; i++, j--) {
+                count++;
+            }
+            if (count >= 5) return true;
+
+            return false;
+        }
+
+        function evaluateBoard(boardState, player) {
+            const directions = [
+                [1, 0], [0, 1], [1, 1], [1, -1]
+            ];
+            const scores = [0, 10, 100, 1000, 10000];
+            let score = 0;
+
+            for (let i = 0; i < boardSize; i++) {
+                for (let j = 0; j < boardSize; j++) {
+                    if (boardState[i][j] === player) {
+                        for (const [dx, dy] of directions) {
+                            let count = 1;
+                            let openEnds = 0;
+
+                            // 正向检查
+                            for (let k = 1; k < 5; k++) {
+                                const ni = i + k * dx;
+                                const nj = j + k * dy;
+                                if (ni >= 0 && ni < boardSize && nj >= 0 && nj < boardSize) {
+                                    if (boardState[ni][nj] === player) {
+                                        count++;
+                                    } else if (boardState[ni][nj] === 0) {
+                                        openEnds++;
+                                        break;
+                                    } else {
+                                        break;
+                                    }
+                                } else {
+                                    break;
+                                }
+                            }
+
+                            // 反向检查
+                            for (let k = 1; k < 5; k++) {
+                                const ni = i - k * dx;
+                                const nj = j - k * dy;
+                                if (ni >= 0 && ni < boardSize && nj >= 0 && nj < boardSize) {
+                                    if (boardState[ni][nj] === player) {
+                                        count++;
+                                    } else if (boardState[ni][nj] === 0) {
+                                        openEnds++;
+                                        break;
+                                    } else {
+                                        break;
+                                    }
+                                } else {
+                                    break;
+                                }
+                            }
+
+                            if (count >= 2) {
+                                if (openEnds === 2) {
+                                    score += scores[count - 1] * 2;
+                                } else if (openEnds === 1) {
+                                    score += scores[count - 1];
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return score;
+        }
+
+        function getAvailableMoves(boardState) {
+            const availableMoves = [];
+            for (let i = 0; i < boardSize; i++) {
+                for (let j = 0; j < boardSize; j++) {
+                    if (boardState[i][j] === 0) {
+                        // 只考虑已有棋子周围的空位
+                        for (let dx = -1; dx <= 1; dx++) {
+                            for (let dy = -1; dy <= 1; dy++) {
+                                if (dx === 0 && dy === 0) continue;
+                                const ni = i + dx;
+                                const nj = j + dy;
+                                if (ni >= 0 && ni < boardSize && nj >= 0 && nj < boardSize && boardState[ni][nj]!== 0) {
+                                    availableMoves.push([i, j]);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return availableMoves;
+        }
+
+        function minimax(boardState, depth, isMaximizing, alpha, beta) {
+            if (depth === 0) {
+                return evaluateBoard(boardState, 2) - evaluateBoard(boardState, 1);
+            }
+
+            const availableMoves = getAvailableMoves(boardState);
+
+            if (isMaximizing) {
+                let maxEval = -Infinity;
+                for (const [i, j] of availableMoves) {
+                    boardState[i][j] = 2;
+                    if (checkWin(i, j, 2)) {
+                        boardState[i][j] = 0;
+                        return 100000;
+                    }
+                    const eval = minimax(boardState, depth - 1, false, alpha, beta);
+                    boardState[i][j] = 0;
+                    maxEval = Math.max(maxEval, eval);
+                    alpha = Math.max(alpha, eval);
+                    if (beta <= alpha) {
+                        break;
+                    }
+                }
+                return maxEval;
+            } else {
+                let minEval = Infinity;
+                for (const [i, j] of availableMoves) {
+                    boardState[i][j] = 1;
+                    if (checkWin(i, j, 1)) {
+                        boardState[i][j] = 0;
+                        return -100000;
+                    }
+                    const eval = minimax(boardState, depth - 1, true, alpha, beta);
+                    boardState[i][j] = 0;
+                    minEval = Math.min(minEval, eval);
+                    beta = Math.min(beta, eval);
+                    if (beta <= alpha) {
+                        break;
+                    }
+                }
+                return minEval;
+            }
+        }
+
+        function computerMove() {
+            let bestScore = -Infinity;
+            let bestX = -1;
+            let bestY = -1;
+            let alpha = -Infinity;
+            let beta = Infinity;
+
+            const availableMoves = getAvailableMoves(pieces);
+
+            for (const [i, j] of availableMoves) {
+                pieces[i][j] = 2;
+                if (checkWin(i, j, 2)) {
+                    bestX = i;
+                    bestY = j;
+                    pieces[i][j] = 0;
+                    break;
+                }
+                const score = minimax([...pieces.map(row => [...row])], 2, false, alpha, beta);
+                pieces[i][j] = 0;
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestX = i;
+                    bestY = j;
+                }
+                alpha = Math.max(alpha, score);
+            }
+
+            pieces[bestX][bestY] = 2;
+            const piece = document.createElement('div');
+            piece.classList.add('piece');
+            piece.style.left = `${bestY * cellSize + cellSize / 2 - 15}px`;
+            piece.style.top = `${bestX * cellSize + cellSize / 2 - 15}px`;
+            piece.style.width = '30px';
+            piece.style.height = '30px';
+            piece.style.backgroundColor = 'white';
+            board.appendChild(piece);
+
+            if (checkWin(bestX, bestY, 2)) {
+                showResultModal('电脑获胜！');
+            } else {
+                currentPlayer = 1;
+            }
+        }
+
+        function showResultModal(message) {
+            const modal = document.getElementById('result-modal');
+            const messageElement = document.getElementById('result-message');
+            messageElement.textContent = message;
+            modal.style.display = 'flex';
+        }
+
+        function restartGame() {
+            const modal = document.getElementById('result-modal');
+            modal.style.display = 'none';
+            for (let i = 0; i < boardSize; i++) {
+                for (let j = 0; j < boardSize; j++) {
+                    pieces[i][j] = 0;
+                }
+            }
+            const piecesOnBoard = document.querySelectorAll('.piece');
+            piecesOnBoard.forEach(piece => piece.remove());
+            currentPlayer = 1;
+        }
+
+        const restartButton = document.getElementById('restart-button');
+        restartButton.addEventListener('click', restartGame);
+
+        board.addEventListener('click', function (event) {
+            if (currentPlayer!== 1) return;
+
+            const rect = board.getBoundingClientRect();
+            const x = Math.floor((event.clientX - rect.left) / cellSize);
+            const y = Math.floor((event.clientY - rect.top) / cellSize);
+
+            if (pieces[y][x] === 0) {
+                pieces[y][x] = 1;
+                const piece = document.createElement('div');
+                piece.classList.add('piece');
+                piece.style.left = `${x * cellSize + cellSize / 2 - 15}px`;
+                piece.style.top = `${y * cellSize + cellSize / 2 - 15}px`;
+                piece.style.width = '30px';
+                piece.style.height = '30px';
+                piece.style.backgroundColor = 'black';
+                board.appendChild(piece);
+
+                if (checkWin(y, x, 1)) {
+                    showResultModal('你获胜了！');
+                } else {
+                    currentPlayer = 2;
+                    setTimeout(computerMove, 500);
+                }
+            }
+        });
+    </script>
+</body>
+
+</html>
+    

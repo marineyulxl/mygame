@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>带名字显示与技能冷却的火柴人对战</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #f0f0f0;
+            font-family: Arial, sans-serif;
+        }
+
+        #game-container {
+            position: relative;
+            width: 1200px;
+            height: 600px;
+            margin: 50px auto;
+            border: 1px solid #ccc;
+            background: linear-gradient(#e0e0e0, #ffffff);
+        }
+
+        #log {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 300px;
+            height: 200px;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 10px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            line-height: 1.6;
+            overflow-y: auto;
+            font-size: 14px;
+            color: #333;
+        }
+
+        .log-item {
+            margin-bottom: 5px;
+        }
+
+        .log-time {
+            color: #999;
+            font-size: 12px;
+        }
+
+        .button-group {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            display: flex;
+            /* flex-direction: column; */
+            gap: 10px;
+        }
+
+        button {
+            padding: 12px 24px;
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: transform 0.1s ease;
+        }
+
+        button:hover {
+            transform: scale(1.03);
+        }
+
+        button:disabled {
+            background-color: #999;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="game-container">
+        <canvas id="canvas" width="1200" height="600"></canvas>
+        <div id="log">点击开始游戏，小小与甜蜜并肩作战！</div>
+        <div class="button-group">
+            <button id="start-btn">开始战斗</button>
+            <button id="restart-btn" style="display: none;">重新开始</button>
+            <button id="skill-1">技能 1：双倍攻击</button>
+            <button id="skill-2">技能 2：护盾（减伤 50%）</button>
+            <button id="cat-skill">甜蜜技能：回血</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const log = document.getElementById('log');
+        const startBtn = document.getElementById('start-btn');
+        const restartBtn = document.getElementById('restart-btn');
+        const skill1Btn = document.getElementById('skill-1');
+        const skill2Btn = document.getElementById('skill-2');
+        const catSkillBtn = document.getElementById('cat-skill');
+
+        class Character {
+            constructor(x, y, isPlayer, name) {
+                this.x = x;
+                this.y = y;
+                this.isPlayer = isPlayer;
+                this.name = name;
+                this.hp = isPlayer ? 150 : 300;
+                this.attack = isPlayer ? 30 : 25;
+                this.speed = isPlayer ? 40 : 50;
+                this.defense = 0;
+                this.attacking = false;
+                this.attackPos = { x: x, y: y };
+                this.animationProgress = 0;
+                this.skills = {
+                    "技能 1：双倍攻击": {
+                        used: false,
+                        cooldown: 3, // 冷却时间 3 回合
+                        currentCooldown: 0,
+                        effect: function () {
+                            return this.attack * 2;
+                        }.bind(this)
+                    },
+                    "技能 2：护盾（减伤 50%）": {
+                        used: false,
+                        cooldown: 3, // 冷却时间 3 回合
+                        currentCooldown: 0,
+                        effect: function () {
+                            return 0.5;
+                        }
+                    }
+                };
+            }
+
+            easeOutQuad(t) {
+                return 1 - (1 - t) * (1 - t);
+            }
+
+            updateAttackAnimation(target) {
+                if (this.attacking) {
+                    const deltaX = this.isPlayer ? 30 : -30;
+                    this.attackPos.x = this.isPlayer ? target.x + deltaX : target.x + deltaX;
+                    this.animationProgress += 0.1;
+                    this.x = this.x + (this.attackPos.x - this.x) * this.easeOutQuad(this.animationProgress);
+                    if (this.animationProgress >= 1) {
+                        this.attacking = false;
+                        this.animationProgress = 0;
+                    }
+                }
+            }
+
+            updateCooldowns() {
+                for (const skill in this.skills) {
+                    if (this.skills[skill].currentCooldown > 0) {
+                        this.skills[skill].currentCooldown--;
+                    }
+                    if (this.skills[skill].currentCooldown === 0) {
+                        this.skills[skill].used = false;
+                    }
+                }
+            }
+        }
+
+        class Cat {
+            constructor(x, y, name) {
+                this.x = x;
+                this.y = y;
+                this.name = name;
+                this.hp = 80;
+                this.maxHp = 80;
+                this.skillUsed = false;
+                this.cooldown = 3; // 冷却时间 3 回合
+                this.currentCooldown = 0;
+            }
+
+            useSkill(player) {
+                if (!this.skillUsed && this.currentCooldown === 0) {
+                    const healAmount = 30;
+                    player.hp = Math.min(player.hp + healAmount, 150);
+                    this.skillUsed = true;
+                    this.currentCooldown = this.cooldown;
+                    addLog(`${this.name} 使用回血技能，为 ${player.name} 恢复了 ${healAmount} 点血量！`);
+                }
+            }
+
+            drawHealthBar() {
+                ctx.fillStyle = '#ecf0f1';
+                ctx.fillRect(this.x - 20, this.y - 35, 40, 6);
+                ctx.fillStyle = this.hp > 0 ? '#2ecc71' : '#e74c3c';
+                ctx.fillRect(this.x - 20, this.y - 35, (this.hp / this.maxHp) * 40, 6);
+            }
+
+            updateCooldown() {
+                if (this.currentCooldown > 0) {
+                    this.currentCooldown--;
+                }
+                if (this.currentCooldown === 0) {
+                    this.skillUsed = false;
+                }
+            }
+        }
+
+        let player = new Character(200, 300, true, '小小');
+        let enemy = new Character(1000, 300, false, '大boss');
+        let cat = new Cat(player.x, player.y - 40, '甜蜜');
+        let currentTurn = null;
+        let animationFrame = null;
+        const damageTexts = [];
+        let catYOffset = 0;
+        let catDirection = 1;
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#c8e0f2';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            drawCharacter(player);
+            drawCharacter(enemy);
+            drawCat(cat.x, cat.y);
+            cat.drawHealthBar();
+            drawDamage();
+            drawNames();
+            animationFrame = requestAnimationFrame(draw);
+
+            catYOffset += catDirection;
+            if (catYOffset > 10 || catYOffset < 0) {
+                catDirection = -catDirection;
+            }
+        }
+
+        function drawCharacter(character) {
+            ctx.save();
+            ctx.scale(character.attacking ? 1.1 : 1, 1.1);
+            ctx.beginPath();
+            ctx.arc(character.x, character.y, 30, 0, Math.PI * 2);
+            ctx.fillStyle = character.isPlayer ? '#3498db' : '#e74c3c';
+            ctx.fill();
+            ctx.strokeStyle = '#2c3e50';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            ctx.fillStyle = '#2c3e50';
+            ctx.fillRect(character.x - 10, character.y + 30, 20, 60);
+            ctx.fillRect(character.x - 25, character.y + 40, 15, 20);
+            ctx.fillRect(character.x + 10, character.y + 40, 15, 20);
+            ctx.fillRect(character.x - 10, character.y + 90, 15, 30);
+            ctx.fillRect(character.x + 5, character.y + 90, 15, 30);
+            ctx.restore();
+            drawHealthBar(character);
+        }
+
+        function drawCat(x, y) {
+            y += catYOffset;
+            ctx.beginPath();
+            ctx.arc(x, y - 15, 12, 0, 2 * Math.PI); // 头部
+            ctx.fillStyle = "#FFC107";
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(x, y, 15, 0, 2 * Math.PI); // 身体
+            ctx.fillStyle = "#FFC107";
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(x - 10, y + 10);
+            ctx.lineTo(x - 15, y + 25); // 左后腿
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(x + 10, y + 10);
+            ctx.lineTo(x + 15, y + 25); // 右后腿
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(x - 10, y - 5);
+            ctx.lineTo(x - 15, y + 5); // 左前腿
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(x + 10, y - 5);
+            ctx.lineTo(x + 15, y + 5); // 右前腿
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(x - 8, y - 20);
+            ctx.lineTo(x - 15, y - 25); // 左耳
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(x + 8, y - 20);
+            ctx.lineTo(x + 15, y - 25); // 右耳
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(x - 5, y - 18, 2, 0, 2 * Math.PI); // 左眼
+            ctx.fillStyle = "#000";
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.arc(x + 5, y - 18, 2, 0, 2 * Math.PI); // 右眼
+            ctx.fillStyle = "#000";
+            ctx.fill();
+        }
+
+        function drawHealthBar(character) {
+            ctx.fillStyle = '#ecf0f1';
+            ctx.fillRect(character.x - 40, character.y - 40, 80, 8);
+            ctx.fillStyle = character.hp > 0 ? '#2ecc71' : '#e74c3c';
+            ctx.fillRect(character.x - 40, character.y - 40, (character.hp / (character.isPlayer ? 150 : 300)) * 80, 8);
+        }
+
+        function drawDamage() {
+            damageTexts.forEach((text, index) => {
+                ctx.font = '20px Arial';
+                ctx.fillStyle = `rgba(255, 0, 0, ${text.alpha})`;
+                ctx.fillText(text.damage, text.x, text.y);
+                text.y -= 2;
+                text.alpha -= 0.03;
+                if (text.alpha <= 0) {
+                    damageTexts.splice(index, 1);
+                }
+            });
+        }
+
+        function drawNames() {
+            ctx.font = '24px Arial';
+            ctx.fillStyle = '#333';
+            ctx.fillText(player.name, player.x - 20, player.y - 60);
+            ctx.fillText(enemy.name, enemy.x - 20, enemy.y - 60);
+            ctx.fillText(cat.name, cat.x - 20, cat.y - 50);
+        }
+
+        function addLog(message) {
+            const now = new Date();
+            const time = now.toLocaleTimeString();
+            const logItem = document.createElement('div');
+            logItem.classList.add('log-item');
+            const logTime = document.createElement('span');
+            logTime.classList.add('log-time');
+            logTime.textContent = `[${time}] `;
+            const logMessage = document.createTextNode(message);
+            logItem.appendChild(logTime);
+            logItem.appendChild(logMessage);
+            log.appendChild(logItem);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function startBattle() {
+            reset();
+            addLog("战斗开始！小小与甜蜜并肩对抗大boss！");
+            startBtn.style.display = "none";
+            restartBtn.style.display = "block";
+            determineTurnOrder();
+            draw();
+        }
+
+        function determineTurnOrder() {
+            currentTurn = player.speed < enemy.speed ? player : enemy;
+            processTurn(currentTurn);
+        }
+
+        function processTurn(attacker) {
+            const defender = attacker === player ? enemy : player;
+            attacker.attacking = true;
+            attacker.animationProgress = 0;
+            let damage = attacker.attack;
+
+            if (attacker === player) {
+                if (player.skills["技能 1：双倍攻击"].used) {
+                    damage = player.skills["技能 1：双倍攻击"].effect();
+                    player.skills["技能 1：双倍攻击"].currentCooldown = player.skills["技能 1：双倍攻击"].cooldown;
+                    addLog(`${player.name} 使用了技能 1：双倍攻击，造成 ${damage} 点伤害`);
+                } else {
+                    addLog(`${player.name} 进行了普通攻击，造成 ${damage} 点伤害`);
+                }
+            } else {
+                addLog(`${enemy.name} 进行了攻击，造成 ${damage} 点伤害`);
+            }
+
+            if (defender === player && player.skills["技能 2：护盾（减伤 50%）"].used) {
+                damage *= player.skills["技能 2：护盾（减伤 50%）"].effect();
+                player.skills["技能 2：护盾（减伤 50%）"].currentCooldown = player.skills["技能 2：护盾（减伤 50%）"].cooldown;
+                addLog(`${player.name} 使用了技能 2：护盾，减免了部分伤害`);
+            }
+
+            const finalDamage = Math.max(0, damage - defender.defense);
+            defender.hp = Math.max(0, defender.hp - finalDamage);
+            damageTexts.push({ x: defender.x, y: defender.y - 50, damage: finalDamage, alpha: 1 });
+
+            // 更新冷却时间
+            player.updateCooldowns();
+            cat.updateCooldown();
+
+            updateSkillButtons();
+
+            setTimeout(() => {
+                if (defender.hp <= 0) {
+                    endBattle(attacker);
+                    return;
+                }
+                currentTurn = attacker === player ? enemy : player;
+                processTurn(currentTurn);
+            }, 2000);
+        }
+
+        function endBattle(winner) {
+            addLog(`${winner.name} 获得胜利！`);
+            startBtn.style.display = "block";
+            restartBtn.style.display = "block";
+            cancelAnimationFrame(animationFrame);
+        }
+
+        function reset() {
+            player = new Character(200, 300, true, '小小');
+            enemy = new Character(1000, 300, false, '大boss');
+            cat = new Cat(player.x, player.y - 40, '甜蜜');
+            damageTexts.length = 0;
+            log.innerHTML = '<div class="log-item"><span class="log-time">[开始]</span> 点击开始游戏，小小与甜蜜并肩作战！</div>';
+            player.skills["技能 1：双倍攻击"].used = false;
+            player.skills["技能 1：双倍攻击"].currentCooldown = 0;
+            player.skills["技能 2：护盾（减伤 50%）"].used = false;
+            player.skills["技能 2：护盾（减伤 50%）"].currentCooldown = 0;
+            cat.skillUsed = false;
+            cat.currentCooldown = 0;
+            updateSkillButtons();
+        }
+
+        function updateSkillButtons() {
+            skill1Btn.disabled = player.skills["技能 1：双倍攻击"].currentCooldown > 0;
+            skill2Btn.disabled = player.skills["技能 2：护盾（减伤 50%）"].currentCooldown > 0;
+            catSkillBtn.disabled = cat.currentCooldown > 0;
+        }
+
+        skill1Btn.addEventListener('click', function () {
+            if (!player.skills["技能 1：双倍攻击"].used && player.skills["技能 1：双倍攻击"].currentCooldown === 0) {
+                player.skills["技能 1：双倍攻击"].used = true;
+                addLog(`你准备让 ${player.name} 使用技能 1：双倍攻击`);
+            }
+        });
+
+        skill2Btn.addEventListener('click', function () {
+            if (!player.skills["技能 2：护盾（减伤 50%）"].used && player.skills["技能 2：护盾（减伤 50%）"].currentCooldown === 0) {
+                player.skills["技能 2：护盾（减伤 50%）"].used = true;
+                addLog(`你准备让 ${player.name} 使用技能 2：护盾`);
+            }
+        });
+
+        catSkillBtn.addEventListener('click', function () {
+            cat.useSkill(player);
+            updateSkillButtons();
+        });
+
+        startBtn.addEventListener('click', startBattle);
+        restartBtn.addEventListener('click', () => {
+            reset();
+            startBtn.style.display = "block";
+            restartBtn.style.display = "none";
+        });
+    </script>
+</body>
+
+</html>
+    

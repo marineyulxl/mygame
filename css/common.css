@@ -1,0 +1,16 @@
+/* 公共样式表 */
+.btn-play {
+    @apply px-6 py-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors;
+}
+
+.game-card {
+    @apply bg-white rounded-lg shadow-md p-6 hover:shadow-xl transition-shadow;
+}
+
+.modal-overlay {
+    @apply fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center;
+}
+
+.modal-content {
+    @apply bg-white p-8 rounded-xl max-w-md w-full;
+}

@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>贪吃游戏</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(45deg, #2c3e50, #3498db);
+            font-family: 'Inter', sans-serif;
+            position: relative;
+        }
+
+        #game-board {
+            border: 2px solid #fff;
+            position: relative;
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .snake-segment {
+            position: absolute;
+            background-color: #2ecc71;
+            border-radius: 4px;
+            box-shadow: 0 0 5px rgba(46, 204, 113, 0.5);
+            transition: transform 0.1s ease-in-out;
+        }
+
+        .snake-segment:hover {
+            transform: scale(1.1);
+        }
+
+        .food {
+            position: absolute;
+            background-color: #e74c3c;
+            border-radius: 50%;
+            box-shadow: 0 0 10px rgba(231, 76, 60, 0.8);
+            animation: pulse 1s infinite alternate;
+        }
+
+        @keyframes pulse {
+            from {
+                transform: scale(1);
+            }
+            to {
+                transform: scale(1.2);
+            }
+        }
+
+        #score-board {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            font-size: 24px;
+            font-weight: bold;
+            color: #fff;
+            text-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        #game-over-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            justify-content: center;
+            align-items: center;
+            backdrop-filter: blur(5px);
+            animation: fadeIn 0.3s ease-in-out;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+
+        #game-over-content {
+            background-color: #fff;
+            padding: 40px;
+            border-radius: 16px;
+            text-align: center;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
+            animation: slideUp 0.3s ease-in-out;
+        }
+
+        @keyframes slideUp {
+            from {
+                transform: translateY(50px);
+            }
+            to {
+                transform: translateY(0);
+            }
+        }
+
+        #game-over-message {
+            font-size: 32px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        #restart-button {
+            padding: 15px 30px;
+            background-color: #3498db;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.2s ease-in-out, transform 0.2s ease-in-out;
+            font-size: 18px;
+            box-shadow: 0 0 10px rgba(52, 152, 219, 0.5);
+        }
+
+        #restart-button:hover {
+            background-color: #2980b9;
+            transform: scale(1.05);
+        }
+    </style>
+</head>
+
+<body>
+    <div id="game-board"></div>
+    <div id="score-board">
+        得分: <span id="score-value">0</span>
+        <span>操作提示：方向键控制移动 (↑↓←→)</span>
+    </div>
+    <div id="game-over-modal">
+        <div id="game-over-content">
+            <div id="game-over-message"></div>
+            <button id="restart-button">你是真贪吃啊</button>
+        </div>
+    </div>
+    <script>
+        const boardSize = 20;
+        const cellSize = 30;
+        const gameBoard = document.getElementById('game-board');
+        const scoreValue = document.getElementById('score-value');
+        gameBoard.style.width = `${boardSize * cellSize}px`;
+        gameBoard.style.height = `${boardSize * cellSize}px`;
+
+        let snake = [
+            { x: 5, y: 5 }
+        ];
+        let food = {
+            x: Math.floor(Math.random() * boardSize),
+            y: Math.floor(Math.random() * boardSize)
+        };
+        let direction = 'right';
+        let score = 0;
+        let gameInterval;
+
+        function drawSnake() {
+            const snakeSegments = document.querySelectorAll('.snake-segment');
+            snakeSegments.forEach(segment => segment.remove());
+
+            snake.forEach(segment => {
+                const snakeSegment = document.createElement('div');
+                snakeSegment.classList.add('snake-segment');
+                snakeSegment.style.left = `${segment.x * cellSize}px`;
+                snakeSegment.style.top = `${segment.y * cellSize}px`;
+                snakeSegment.style.width = `${cellSize}px`;
+                snakeSegment.style.height = `${cellSize}px`;
+                gameBoard.appendChild(snakeSegment);
+            });
+        }
+
+        function drawFood() {
+            const foodElement = document.querySelector('.food');
+            if (foodElement) {
+                foodElement.remove();
+            }
+
+            const foodDiv = document.createElement('div');
+            foodDiv.classList.add('food');
+            foodDiv.style.left = `${food.x * cellSize}px`;
+            foodDiv.style.top = `${food.y * cellSize}px`;
+            foodDiv.style.width = `${cellSize}px`;
+            foodDiv.style.height = `${cellSize}px`;
+            gameBoard.appendChild(foodDiv);
+        }
+
+        function updateScore() {
+            scoreValue.textContent = score;
+        }
+
+        function moveSnake() {
+            const head = { ...snake[0] };
+            switch (direction) {
+                case 'right':
+                    head.x++;
+                    break;
+                case 'left':
+                    head.x--;
+                    break;
+                case 'up':
+                    head.y--;
+                    break;
+                case 'down':
+                    head.y++;
+                    break;
+            }
+
+            snake.unshift(head);
+
+            if (head.x === food.x && head.y === food.y) {
+                score++;
+                updateScore();
+                food = {
+                    x: Math.floor(Math.random() * boardSize),
+                    y: Math.floor(Math.random() * boardSize)
+                };
+            } else {
+                snake.pop();
+            }
+        }
+
+        function checkCollision() {
+            const head = snake[0];
+            if (head.x < 0 || head.x >= boardSize || head.y < 0 || head.y >= boardSize) {
+                return true;
+            }
+
+            for (let i = 1; i < snake.length; i++) {
+                if (head.x === snake[i].x && head.y === snake[i].y) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        function gameOver() {
+            clearInterval(gameInterval);
+            const gameOverModal = document.getElementById('game-over-modal');
+            const gameOverMessage = document.getElementById('game-over-message');
+            gameOverMessage.textContent = `不要吃了哥们，你的得分是: ${score}`;
+            gameOverModal.style.display = 'flex';
+        }
+
+        function restartGame() {
+            const gameOverModal = document.getElementById('game-over-modal');
+            gameOverModal.style.display = 'none';
+            snake = [
+                { x: 5, y: 5 }
+            ];
+            food = {
+                x: Math.floor(Math.random() * boardSize),
+                y: Math.floor(Math.random() * boardSize)
+            };
+            direction = 'right';
+            score = 0;
+            updateScore();
+            gameInterval = setInterval(() => {
+                moveSnake();
+                drawSnake();
+                drawFood();
+                if (checkCollision()) {
+                    gameOver();
+                }
+            }, 200);
+        }
+
+        const restartButton = document.getElementById('restart-button');
+        restartButton.addEventListener('click', restartGame);
+
+        document.addEventListener('keydown', function (event) {
+            switch (event.key) {
+                case 'ArrowRight':
+                    if (direction!== 'left') {
+                        direction = 'right';
+                    }
+                    break;
+                case 'ArrowLeft':
+                    if (direction!== 'right') {
+                        direction = 'left';
+                    }
+                    break;
+                case 'ArrowUp':
+                    if (direction!== 'down') {
+                        direction = 'up';
+                    }
+                    break;
+                case 'ArrowDown':
+                    if (direction!== 'up') {
+                        direction = 'down';
+                    }
+                    break;
+            }
+        });
+
+        gameInterval = setInterval(() => {
+            moveSnake();
+            drawSnake();
+            drawFood();
+            if (checkCollision()) {
+                gameOver();
+            }
+        }, 200);
+    </script>
+</body>
+
+</html>
+    
